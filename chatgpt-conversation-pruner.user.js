@@ -21,8 +21,8 @@
    **********************************************************/
     const DEBUG = true;
 
-    // true = 临时禁用“首屏剪枝相关优化”（用于对照）
-    // - 不隐藏 main
+    // true = 临时禁用“首次稳定后剪枝”（用于对照）
+    // - 页面照常显示
     // - 稳定态后不做首次 prune（但后续滚动回到底部仍可能触发 prune）
     const DISABLE_FIRST_SCREEN_PRUNE = false;
 
@@ -151,9 +151,13 @@
         );
     }
 
-    function getConversationContainer() {
+    function getMessageListContainer() {
         const first = getTurns()[0];
-        return first?.parentElement || document.querySelector('main') || document.body;
+        return first?.parentElement || null;
+    }
+
+    function getConversationContainer() {
+        return getMessageListContainer() || document.querySelector('main') || document.body;
     }
 
     function isScrollable(el) {
@@ -224,7 +228,8 @@
     /**********************************************************
    * 等待“对话 DOM 稳定态”
    **********************************************************/
-    function waitForConversationStable(convKey, onReady, onProgress) {
+    function waitForConversationStable(convKey, options, onReady, onProgress) {
+        const allowEarlyPruneReady = !!options?.allowEarlyPruneReady;
         let lastCount = 0;
         let stableHits = 0;
         let lastHeight = 0;
@@ -258,9 +263,15 @@
 
             onProgress && onProgress({ stableHits, turns: turns.length });
 
+            if (allowEarlyPruneReady && turns.length > HIDE_BEYOND && stableHits >= 1) {
+                clearInterval(t);
+                onReady({ reason: 'early-prune-ready', turns: turns.length, stableHits });
+                return;
+            }
+
             if (stableHits >= STABLE_HITS_REQUIRED) {
                 clearInterval(t);
-                onReady();
+                onReady({ reason: 'fully-stable', turns: turns.length, stableHits });
             }
         }, STABLE_CHECK_INTERVAL);
 
@@ -295,9 +306,9 @@
         let rebindLeft = REBIND_TRIES;
         let rebindTimer = null;
         let stableCancel = null;
-
-        const hideStyle = document.createElement('style');
-        hideStyle.textContent = `main { visibility: hidden !important; }`;
+        let INITIALIZED = false;
+        let HIDDEN_LIST_CONTAINER = null;
+        let HIDDEN_LIST_PREV_VISIBILITY = '';
 
         // 生成期剪枝触发器
         let lastTurnCount = getTurns().length;
@@ -355,9 +366,38 @@
                 rebindTimer = null;
             }
 
-            try { hideStyle.remove(); } catch {}
-
+            revealMessageListContainer();
             removeHeaderBadge();
+        }
+
+        function hideMessageListContainer() {
+            const container = getMessageListContainer();
+            if (!container) return;
+            if (HIDDEN_LIST_CONTAINER === container) return;
+
+            revealMessageListContainer();
+
+            HIDDEN_LIST_CONTAINER = container;
+            HIDDEN_LIST_PREV_VISIBILITY = container.style.visibility;
+            container.style.setProperty('visibility', 'hidden', 'important');
+        }
+
+        function revealMessageListContainer() {
+            if (!HIDDEN_LIST_CONTAINER) return;
+
+            if (HIDDEN_LIST_PREV_VISIBILITY) {
+                HIDDEN_LIST_CONTAINER.style.visibility = HIDDEN_LIST_PREV_VISIBILITY;
+            } else {
+                HIDDEN_LIST_CONTAINER.style.removeProperty('visibility');
+            }
+
+            HIDDEN_LIST_CONTAINER = null;
+            HIDDEN_LIST_PREV_VISIBILITY = '';
+        }
+
+        function syncMessageListContainerVisibility() {
+            if (INITIALIZED) return;
+            hideMessageListContainer();
         }
 
         function sanitizeCache() {
@@ -596,6 +636,9 @@
 
         const earlyObserver = new MutationObserver(() => {
             if (!ACTIVE) return;
+
+            syncMessageListContainerVisibility();
+
             if (!EARLY_HIT) {
                 EARLY_HIT = true;
                 DEBUG && LOG.log(
@@ -656,47 +699,41 @@
         }
 
         function start() {
-            if (!DISABLE_FIRST_SCREEN_PRUNE) {
-                document.documentElement.appendChild(hideStyle);
-                DEBUG && LOG.log('main hidden (waiting stable)', 'key=', convKey);
-            }
-
+            syncMessageListContainerVisibility();
             earlyObserver.observe(document.documentElement, { childList: true, subtree: true });
 
             stableCancel = waitForConversationStable(
                 convKey,
-                () => {
+                {
+                    allowEarlyPruneReady: !DISABLE_FIRST_SCREEN_PRUNE,
+                },
+                (ready) => {
                     if (!ACTIVE) return;
+                    INITIALIZED = true;
 
                     const tStable = Math.round(performance.now() - START_AT);
-                    DEBUG && LOG.log('conversation stable at', tStable, 'ms', 'key=', convKey);
-
-                    if (!DISABLE_FIRST_SCREEN_PRUNE) {
-                        hideStyle.remove();
-                        const tRestore = Math.round(performance.now() - START_AT);
-                        DEBUG && LOG.log('main restored at', tRestore, 'ms', 'key=', convKey);
-
-                        requestAnimationFrame(() => {
-                            requestAnimationFrame(() => {
-                                DEBUG && LOG.log(
-                                    'first visible frame at',
-                                    Math.round(performance.now() - START_AT),
-                                    'ms',
-                                    'key=',
-                                    convKey
-                                );
-                            });
-                        });
-                    }
+                    DEBUG && LOG.log(
+                        'conversation ready at',
+                        tStable,
+                        'ms',
+                        'reason=',
+                        ready?.reason,
+                        'key=',
+                        convKey
+                    );
 
                     sanitizeCache();
                     clearHiddenTurns();
 
-                    if (!DISABLE_FIRST_SCREEN_PRUNE) {
+                    if (!DISABLE_FIRST_SCREEN_PRUNE && ready?.reason === 'early-prune-ready') {
+                        prune();
+                    } else if (!DISABLE_FIRST_SCREEN_PRUNE && ready?.reason === 'fully-stable') {
                         prune();
                     } else {
-                        DEBUG && LOG.warn('first screen prune disabled (experiment)', 'key=', convKey);
+                        DEBUG && LOG.warn('initial stable prune disabled (experiment)', 'key=', convKey);
                     }
+
+                    revealMessageListContainer();
 
                     setupIntersectionObserver();
                     watchScrollMode();
