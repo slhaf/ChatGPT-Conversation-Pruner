@@ -100,7 +100,7 @@ The script exposes a small set of configurable parameters to balance performance
 
 ### 1. Core Idea
 
-In long ChatGPT conversations, the frontend accumulates a large number of `article`-level DOM nodes.  
+In long ChatGPT conversations, the frontend accumulates a large number of conversation-turn DOM nodes.  
 As the conversation grows, scrolling, input handling, and layout computation become increasingly expensive.
 
 The core goal of this script is:

@@ -138,13 +138,13 @@ function createWindow() {
     };
 
     // 首次页面完成
-    win.webContents.于('did-finish-load'， injectIfNeeded);
+    win.webContents.on('did-finish-load', injectIfNeeded);
 
     // SPA 内路由变化
-    win.webContents.于('did-navigate-in-page', injectIfNeeded);
+    win.webContents.on('did-navigate-in-page', injectIfNeeded);
 
     // 兜底：少数真正跳转
-    win.webContents.于('did-navigate', injectIfNeeded);
+    win.webContents.on('did-navigate', injectIfNeeded);
 
     win.webContents.setWindowOpenHandler(({ url }) => {
         // 只允许 chatgpt.com 在 App 内
@@ -167,4 +167,3 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
-
