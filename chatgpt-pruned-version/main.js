@@ -5,7 +5,7 @@ const https = require('https');
 
 const INJECT_MARK = '__CHATGPT_PRUNER_INJECTED__';
 const STYLE_MARK = '__CHATGPT_HIDE_SCROLLBAR__';
-const PRUNER_URL = 'https://raw.githubusercontent.com/slhafzjw/ChatGPT-Conversation-Pruner/5f872465214d261c220648876941539b620eb27d/chatgpt-conversation-pruner.user.js'
+const PRUNER_URL = 'https://raw.githubusercontent.com/slhaf/ChatGPT-Conversation-Pruner/main/chatgpt-conversation-pruner.user.js';
 const CACHE_PATH = path.join(
     app.getPath('userData'),
     'pruner.user.js'
