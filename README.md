@@ -10,9 +10,6 @@ As a result, scrolling, typing, and rendering performance are significantly impr
 The script only runs on ChatGPT conversation pages.  
 It does **not** intercept network requests and does **not** collect any user data.
 
-> Inspired by [ChatGPT Long Conversation Lag Optimization](https://greasyfork.org/zh-CN/scripts/559208-chatgpt-%E9%95%BF%E5%AF%B9%E8%AF%9D%E5%8D%A1%E9%A1%BF%E4%BC%98%E5%8C%96).  
-> Building on the DOM-unmounting approach, this script further introduces **pruned DOM caching, on-demand restoration, and scroll-state–aware DOM management**, making it suitable for longer conversations and more complex frontend state transitions.
-
 > This script is developed with the assistance of ChatGPT.
 
 ---
