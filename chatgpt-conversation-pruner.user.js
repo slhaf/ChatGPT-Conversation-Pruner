@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Pruner
 // @namespace    chatgpt-conversation-pruner
-// @version      2.3.6
+// @version      2.3.7
 // @description  缓解 ChatGPT 长对话场景下的前端性能问题
 // @match        https://chatgpt.com/*
 // @homepageURL  https://github.com/slhafzjw/ChatGPT-Conversation-Pruner
@@ -36,8 +36,8 @@
     /**********************************************************
    * 参数
    **********************************************************/
-    const HIDE_BEYOND = 8;
-    const BATCH_SIZE = 8;
+    const HIDE_BEYOND = 4;
+    const BATCH_SIZE = 4;
 
     const LOAD_ROOT_MARGIN = '200px 0px 0px 0px';
     const BOTTOM_THRESHOLD = 10;
