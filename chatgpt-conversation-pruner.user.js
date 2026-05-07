@@ -36,11 +36,13 @@
     /**********************************************************
    * 参数
    **********************************************************/
-    const HIDE_BEYOND = 4;
+    const HIDE_BEYOND = 8;
     const BATCH_SIZE = 4;
 
     const LOAD_ROOT_MARGIN = '200px 0px 0px 0px';
     const BOTTOM_THRESHOLD = 10;
+    const TOP_SECTION_TRIGGER_INDEX = 1;
+    const TOP_SECTION_TRIGGER_OFFSET = 24;
 
     const MAX_CACHE_PER_CONV = 300;
 
@@ -73,8 +75,14 @@
    **********************************************************/
     const HEADER_BADGE_KEY = '__CHATGPT_PRUNER_HEADER_BADGE__';
 
-    function getModelSwitcherButton() {
-        return document.querySelector('[data-testid="model-switcher-dropdown-button"]');
+    function getHeaderAnchorButton() {
+        const header = getPageHeader();
+        if (!header) return null;
+
+        return (
+            header.querySelector('[data-testid="share-chat-button"]') ||
+            header.querySelector('[data-testid="conversation-options-button"]')
+        );
     }
 
     function getPageHeader() {
@@ -83,8 +91,12 @@
 
     function ensureHeaderBadge() {
         const header = getPageHeader();
-        const anchor = getModelSwitcherButton();
-        if (!header || !anchor) return null;
+        if (!header) return null;
+
+        const anchor = getHeaderAnchorButton();
+        if (getComputedStyle(header).position === 'static') {
+            header.style.position = 'relative';
+        }
 
         let badge = window[HEADER_BADGE_KEY];
         if (!badge || !badge.isConnected) {
@@ -105,12 +117,20 @@
             window[HEADER_BADGE_KEY] = badge;
         }
 
-        const a = anchor.getBoundingClientRect();
         const h = header.getBoundingClientRect();
-
-        badge.style.left = `${a.right - h.left + 8}px`;
-        badge.style.top = `${a.top - h.top + a.height / 2}px`;
-        badge.style.transform = 'translateY(-50%)';
+        if (anchor) {
+            const a = anchor.getBoundingClientRect();
+            const right = Math.max(12, h.right - a.left + 8);
+            badge.style.left = 'auto';
+            badge.style.right = `${right}px`;
+            badge.style.top = `${a.top - h.top + a.height / 2}px`;
+            badge.style.transform = 'translateY(-50%)';
+        } else {
+            badge.style.left = 'auto';
+            badge.style.right = '12px';
+            badge.style.top = '50%';
+            badge.style.transform = 'translateY(-50%)';
+        }
 
         return badge;
     }
@@ -126,6 +146,14 @@
         if (!badge) return;
         badge.textContent = `• live: ${live} | cached: ${cached}`;
         ensureHeaderBadge();
+    }
+
+    function getRestoreTriggerLine() {
+        const badge = window[HEADER_BADGE_KEY];
+        const header = getPageHeader();
+        const badgeBottom = badge?.isConnected ? badge.getBoundingClientRect().bottom : 0;
+        const headerBottom = header ? header.getBoundingClientRect().bottom : 0;
+        return Math.max(badgeBottom, headerBottom) + TOP_SECTION_TRIGGER_OFFSET;
     }
 
     window.addEventListener('resize', () => {
@@ -151,13 +179,33 @@
         );
     }
 
+    function getCommonAncestor(elements) {
+        if (!elements?.length) return null;
+
+        const first = elements[0];
+        let cur = first?.parentElement || null;
+        while (cur) {
+            if (elements.every((el) => cur.contains(el))) return cur;
+            cur = cur.parentElement;
+        }
+        return null;
+    }
+
     function getMessageListContainer() {
-        const first = getTurns()[0];
-        return first?.parentElement || null;
+        const turns = getTurns();
+        if (!turns.length) return null;
+
+        const common = getCommonAncestor(turns);
+        return common || turns[0]?.parentElement || null;
     }
 
     function getConversationContainer() {
-        return getMessageListContainer() || document.querySelector('main') || document.body;
+        const list = getMessageListContainer();
+        if (list) return list;
+
+        const turns = getTurns();
+        const common = getCommonAncestor(turns);
+        return common || document.querySelector('main') || document.body;
     }
 
     function isScrollable(el) {
@@ -207,8 +255,53 @@
         return root.scrollHeight - root.scrollTop - root.clientHeight < threshold;
     }
 
+    function getElementLabel(el) {
+        if (!el) return '';
+        return [
+            el.getAttribute('aria-label'),
+            el.textContent,
+        ].filter(Boolean).join(' ');
+    }
+
     function isVoiceActive() {
-        return !!document.querySelector('[data-testid*=voice], [aria-label*=voice]');
+        const direct = document.querySelector([
+            'button[aria-label*="停止听写"]',
+            'button[aria-label*="停止语音"]',
+            'button[aria-label*="结束语音"]',
+            'button[aria-label*="Stop dictation"]',
+            'button[aria-label*="Stop voice"]',
+        ].join(','));
+        if (direct) return true;
+
+        const controls = Array.from(document.querySelectorAll('main button[aria-pressed="true"], main button[data-state="open"]'));
+        return controls.some((el) => /语音|听写|voice|dictat/i.test(getElementLabel(el)));
+    }
+
+    function setScrollTopDelta(root, delta) {
+        if (Math.abs(delta) <= 1) return;
+        if (root && root !== document.body && root !== document.documentElement) {
+            root.scrollTop += delta;
+            return;
+        }
+        window.scrollBy(0, delta);
+    }
+
+    function getBottomDistance(root = getScrollRoot()) {
+        if (!root || root === document.body || root === document.documentElement) {
+            const se = document.scrollingElement || document.documentElement;
+            return se.scrollHeight - se.scrollTop - window.innerHeight;
+        }
+        return root.scrollHeight - root.scrollTop - root.clientHeight;
+    }
+
+    function restoreBottomDistance(root, bottomDistance) {
+        if (bottomDistance == null) return;
+        if (!root || root === document.body || root === document.documentElement) {
+            const se = document.scrollingElement || document.documentElement;
+            se.scrollTop = se.scrollHeight - window.innerHeight - bottomDistance;
+            return;
+        }
+        root.scrollTop = root.scrollHeight - root.clientHeight - bottomDistance;
     }
 
     function getCacheForKey(key) {
@@ -293,8 +386,6 @@
         let IS_LOADING = false;
 
         let SENTINEL = null;
-                    // Sentinel lost usually means DOM rebuild.
-                    resetDomGen('sentinel-lost');
         let IO = null;
 
         let SCROLL_ROOT = null;
@@ -401,8 +492,6 @@
         }
 
         function sanitizeCache() {
-            if (!cacheCountForGen(cache, DOM_GEN)) return;
-
             // Keep only entries for this instance's DOM generation.
             // Drop anything connected to DOM (already restored) or malformed.
             for (let i = cache.length - 1; i >= 0; i--) {
@@ -442,6 +531,19 @@
             return s;
         }
 
+        function shouldRestoreHistory() {
+            if (!cacheCountForGen(cache, DOM_GEN)) return false;
+
+            const turns = getTurns();
+            if (!turns.length) return false;
+
+            const triggerLine = getRestoreTriggerLine();
+            const firstVisibleIdx = turns.findIndex((el) => el.getBoundingClientRect().bottom > triggerLine);
+            if (firstVisibleIdx === -1) return false;
+
+            return firstVisibleIdx <= TOP_SECTION_TRIGGER_INDEX;
+        }
+
         // ✅ 新增：DOM 重建安全剪枝（避免 cached 翻倍）
         function safePrune(reason) {
             if (!ACTIVE) return;
@@ -464,6 +566,9 @@
         function prune() {
             if (!ACTIVE || PAUSE_PRUNE || HISTORY_MODE) return;
 
+            const root = getScrollRoot();
+            const keepBottomPinned = isAtBottom();
+            const bottomDistance = keepBottomPinned ? getBottomDistance(root) : null;
             const turns = getTurns();
             if (turns.length <= HIDE_BEYOND) {
                 refreshHeaderBadge();
@@ -507,6 +612,12 @@
 
             sanitizeCache();
             refreshHeaderBadge();
+
+            if (keepBottomPinned) {
+                requestAnimationFrame(() => {
+                    restoreBottomDistance(root, bottomDistance);
+                });
+            }
         }
 
         function loadMoreHistory() {
@@ -537,7 +648,7 @@
             requestAnimationFrame(() => {
                 const afterTop = sentinel.getBoundingClientRect().top;
                 const delta = afterTop - beforeTop;
-                if (Math.abs(delta) > 1) window.scrollBy(0, delta);
+                setScrollTopDelta(getScrollRoot(), delta);
 
                 IS_LOADING = false;
                 DEBUG && LOG.log('restored', restored, 'cache left', cache.length, 'key=', convKey);
@@ -547,26 +658,15 @@
         }
 
         function setupIntersectionObserver() {
-            if (IO) IO.disconnect();
+            if (IO) {
+                IO.disconnect();
+                IO = null;
+            }
 
-            const root = getScrollRoot();
-
-            IO = new IntersectionObserver(entries => {
-                const e = entries[0];
-                if (!e?.isIntersecting) return;
-                if (!ACTIVE || IS_LOADING) return;
-                if (!cacheCountForGen(cache, DOM_GEN)) return;
-                loadMoreHistory();
-            }, {
-                root,
-                rootMargin: LOAD_ROOT_MARGIN,
-                threshold: 0.01,
-            });
-
-            IO.observe(ensureSentinel());
+            ensureSentinel();
 
             if (rebindLeft > 0) {
-                const boundRoot = root;
+                const boundRoot = getScrollRoot();
                 if (rebindTimer) clearTimeout(rebindTimer);
                 rebindTimer = setTimeout(() => {
                     rebindTimer = null;
@@ -599,6 +699,11 @@
                 if (!ACTIVE) return;
                 if (isVoiceActive()) return;
 
+                if (!IS_LOADING && shouldRestoreHistory()) {
+                    loadMoreHistory();
+                    return;
+                }
+
                 if (HISTORY_MODE && isAtBottom()) {
                     HISTORY_MODE = false;
                     PAUSE_PRUNE = false;
@@ -607,7 +712,11 @@
                 }
             };
 
-            (SCROLL_ROOT || window).addEventListener('scroll', SCROLL_HANDLER, { passive: true });
+            const target =
+                  SCROLL_ROOT && SCROLL_ROOT !== document.body && SCROLL_ROOT !== document.documentElement
+                      ? SCROLL_ROOT
+                      : window;
+            target.addEventListener('scroll', SCROLL_HANDLER, { passive: true });
         }
 
         const growObserver = new MutationObserver(() => {
@@ -660,7 +769,7 @@
                 if (getConvKey() !== convKey) return;
 
                 // 1) header 被 React 刷掉：确保徽章存在 + 位置刷新
-                if (getPageHeader() && getModelSwitcherButton()) {
+                if (getPageHeader()) {
                     ensureHeaderBadge();
                 }
 
