@@ -1,0 +1,7 @@
+.codex
+
+chatgpt-pruned-version/node_modules/
+chatgpt-pruned-version/dist/
+
+# This project tracks npm's lockfile.
+chatgpt-pruned-version/pnpm-lock.yaml
